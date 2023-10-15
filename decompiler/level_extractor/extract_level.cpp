@@ -310,36 +310,6 @@ void extract_common(const ObjectFileDB& db,
     }
   }
 
-  std::set<std::string> textures_we_have;
-
-  // put _all_ index textures in common.
-  for (const auto& [id, tex] : tex_db.index_textures_by_combo_id) {
-    tfrag_level.index_textures.push_back(tex);
-  }
-
-  for (const auto& t : tfrag_level.textures) {
-    textures_we_have.insert(t.debug_name);
-  }
-
-  for (const auto& [id, normal_texture] : tex_db.textures) {
-    if (config.common_tpages.count(normal_texture.page) &&
-        !textures_we_have.count(normal_texture.name)) {
-      textures_we_have.insert(normal_texture.name);
-      tfrag_level.textures.push_back(
-          make_texture(id, normal_texture, tex_db.tpage_names.at(normal_texture.page), true));
-    }
-  }
-
-  // add animated textures that are missing.
-  for (const auto& [id, normal_texture] : tex_db.textures) {
-    if (config.animated_textures.count(normal_texture.name) &&
-        !textures_we_have.count(normal_texture.name)) {
-      textures_we_have.insert(normal_texture.name);
-      tfrag_level.textures.push_back(
-          make_texture(id, normal_texture, tex_db.tpage_names.at(normal_texture.page), false));
-    }
-  }
-
   Serializer ser;
   tfrag_level.serialize(ser);
   auto compressed =
@@ -386,7 +356,9 @@ void extract_from_level(const ObjectFileDB& db,
   if (dgo_name != "SNO.DGO" && db.obj_files_by_dgo.count(dgo_name) == 0) {
     lg::warn("Skipping adding {} because we are in Jak 2 mode", dgo_name);
     const std::string local_dgo_name = "SNO.DGO"; 
-    extract_art_groups_from_level(db, tex_db, extract_bsp_from_level(db, tex_db, local_dgo_name, config.hacks, extract_collision, level_data), local_dgo_name, level_data);
+    extract_art_groups_from_level(db, tex_db,
+                                  extract_bsp_from_level(db, tex_db, local_dgo_name, config.hacks, extract_collision, level_data).texture_remap_table,
+                                  local_dgo_name, level_data, art_group_data);
     return;
   }
   
@@ -394,7 +366,9 @@ void extract_from_level(const ObjectFileDB& db,
   if (dgo_name != "MIS.DGO" && db.obj_files_by_dgo.count(dgo_name) == 0) {
     lg::warn("Skipping adding {} because we are in Jak 2 mode", dgo_name);
     const std::string local_dgo_name = "MIS.DGO"; 
-    extract_art_groups_from_level(db, tex_db, extract_bsp_from_level(db, tex_db, local_dgo_name, config.hacks, extract_collision, level_data), local_dgo_name, level_data);
+    extract_art_groups_from_level(db, tex_db,
+                                  extract_bsp_from_level(db, tex_db, local_dgo_name, config.hacks, extract_collision, level_data).texture_remap_table,
+                                  local_dgo_name, level_data, art_group_data);
     return;
   }
   
