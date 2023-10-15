@@ -7,6 +7,7 @@
 #include "common/util/json_util.h"
 #include "common/util/string_util.h"
 
+#include "decompiler/extractor/extractor_util.h"
 #include "decompiler/level_extractor/extract_merc.h"
 #include "goalc/build_level/Entity.h"
 #include "goalc/build_level/FileInfo.h"
@@ -143,38 +144,47 @@ bool run_build_level(const std::string& input_file,
 
   // Add textures and models
   // TODO remove hardcoded config settings
-  if (level_json.contains("art_groups") && !level_json.at("art_groups").empty()) {
+  if ((level_json.contains("art_groups") && !level_json.at("art_groups").empty()) ||
+      (level_json.contains("textures") && !level_json.at("textures").empty())) {
+    fs::path iso_folder = "";
+    lg::info("Looking for ISO path...");
+    // TODO - add to file_util
+    for (const auto& entry :
+         fs::directory_iterator(file_util::get_jak_project_dir() / "iso_data")) {
+      // TODO - hard-coded to jak 1
+      if (entry.is_directory() &&
+          entry.path().filename().string().find("jak1") != std::string::npos) {
+        lg::info("Found ISO path: {}", entry.path().string());
+        iso_folder = entry.path();
+      }
+    }
+
+    if (iso_folder.empty() || !fs::exists(iso_folder)) {
+      lg::warn("Could not locate ISO path!");
+      return false;
+    }
+
+    // Look for iso build info if it's available, otherwise default to ntsc_v1
+    const auto version_info = get_version_info_or_default(iso_folder);
+
     decompiler::Config config;
     try {
       config = decompiler::read_config_file(
-          file_util::get_jak_project_dir() / "decompiler/config/jak1/jak1_config.jsonc", "ntsc_v1",
-          R"({"decompile_code": false, "find_functions": false, "levels_extract": true, "allowed_objects": []})");
+          file_util::get_jak_project_dir() / "decompiler/config/jak1/jak1_config.jsonc",
+          version_info.decomp_config_version,
+          R"({"decompile_code": false, "find_functions": false, "levels_extract": true, "allowed_objects": [], "save_texture_pngs": false})");
     } catch (const std::exception& e) {
       lg::error("Failed to parse config: {}", e.what());
       return false;
     }
 
-    fs::path in_folder;
-    lg::info("Looking for ISO path...");
-    for (const auto& entry :
-         fs::directory_iterator(file_util::get_jak_project_dir() / "iso_data")) {
-      if (entry.is_directory() &&
-          entry.path().filename().string().find("jak1") != std::string::npos) {
-        lg::info("Found ISO path: {}", entry.path().string());
-        in_folder = entry.path();
-      }
-    }
-    if (!fs::exists(in_folder)) {
-      lg::error("Could not find ISO path!");
-      return false;
-    }
     std::vector<fs::path> dgos, objs;
     for (const auto& dgo_name : config.dgo_names) {
-      dgos.push_back(in_folder / dgo_name);
+      dgos.push_back(iso_folder / dgo_name);
     }
 
     for (const auto& obj_name : config.object_file_names) {
-      objs.push_back(in_folder / obj_name);
+      objs.push_back(iso_folder / obj_name);
     }
 
     decompiler::ObjectFileDB db(dgos, fs::path(config.obj_file_name_map_file), objs, {}, {},
@@ -191,19 +201,53 @@ bool run_build_level(const std::string& input_file,
     std::vector<std::string> processed_art_groups;
 
     // find all art groups used by the custom level in other dgos
-    for (auto& dgo : config.dgo_names) {
-      // remove "DGO/" prefix
-      const auto& dgo_name = dgo.substr(4);
-      const auto& files = db.obj_files_by_dgo.at(dgo_name);
-      auto art_groups = find_art_groups(
-          processed_art_groups, level_json.at("art_groups").get<std::vector<std::string>>(), files);
-      auto tex_remap = decompiler::extract_tex_remap(db, dgo_name);
-      for (const auto& ag : art_groups) {
-        if (ag.name.length() > 3 && !ag.name.compare(ag.name.length() - 3, 3, "-ag")) {
-          const auto& ag_file = db.lookup_record(ag);
-          lg::print("custom level: extracting art group {}\n", ag_file.name_in_dgo);
-          decompiler::extract_merc(ag_file, tex_db, db.dts, tex_remap, pc_level, false,
-                                   db.version());
+    if (level_json.contains("art_groups") && !level_json.at("art_groups").empty()) {
+      for (auto& dgo : config.dgo_names) {
+        // remove "DGO/" prefix
+        const auto& dgo_name = dgo.substr(4);
+        const auto& files = db.obj_files_by_dgo.at(dgo_name);
+        auto art_groups =
+            find_art_groups(processed_art_groups,
+                            level_json.at("art_groups").get<std::vector<std::string>>(), files);
+        auto tex_remap = decompiler::extract_tex_remap(db, dgo_name);
+        for (const auto& ag : art_groups) {
+          if (ag.name.length() > 3 && !ag.name.compare(ag.name.length() - 3, 3, "-ag")) {
+            const auto& ag_file = db.lookup_record(ag);
+            lg::print("custom level: extracting art group {}\n", ag_file.name_in_dgo);
+            decompiler::extract_merc(ag_file, tex_db, db.dts, tex_remap, pc_level, false,
+                                     db.version());
+          }
+        }
+      }
+    }
+
+    // add textures
+    if (level_json.contains("textures") && !level_json.at("textures").empty()) {
+      std::vector<std::string> processed_textures;
+      std::vector<std::string> wanted_texs =
+          level_json.at("textures").get<std::vector<std::string>>();
+      // first check the texture is not already in the level
+      for (auto& level_tex : pc_level.textures) {
+        if (std::find(wanted_texs.begin(), wanted_texs.end(), level_tex.debug_name) !=
+            wanted_texs.end()) {
+          processed_textures.push_back(level_tex.debug_name);
+        }
+      }
+
+      // then add
+      for (auto& [id, tex] : tex_db.textures) {
+        for (auto& tex0 : wanted_texs) {
+          if (std::find(processed_textures.begin(), processed_textures.end(), tex.name) !=
+              processed_textures.end()) {
+            continue;
+          }
+          if (tex.name == tex0) {
+            lg::info("custom level: adding texture {} from tpage {} ({})", tex.name, tex.page,
+                     tex_db.tpage_names.at(tex.page));
+            pc_level.textures.push_back(
+                make_texture(id, tex, tex_db.tpage_names.at(tex.page), true));
+            processed_textures.push_back(tex.name);
+          }
         }
       }
     }
