@@ -23,7 +23,10 @@
 
     (defun runs-every-frame ()
       ;;(increase-power-cell-by-one) This is a call to increase-power-cell-by-one defined in mod-common-functions.gc
-      
+
+      ;; make sure mirror-v is always on
+      (logior! (-> *pc-settings* cheats) (pc-cheats mirror-v))
+
       (if *show-input-display* 
         (input-display-on)
         (input-display-off)
