@@ -432,6 +432,7 @@
     (speedrun-draw-settings)
     ;;Disable any active cheats
     (set! (-> *pc-settings* cheats) (the-as pc-cheats #x0))
+    (logior! (-> *pc-settings* cheats) (pc-cheats mirror-v))  ;; except mirror-v
     ;; Run after-blackout speedrun setup (if needed)
     (setup-speedrun-post-blackout)
     )
