@@ -26,6 +26,7 @@
 
       ;; make sure mirror-v is always on
       (logior! (-> *pc-settings* cheats) (pc-cheats mirror-v))
+      (logior! (-> *pc-settings* cheats-known) (pc-cheats mirror))
 
       (if *show-input-display* 
         (input-display-on)

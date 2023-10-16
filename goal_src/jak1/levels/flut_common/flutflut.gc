@@ -7,6 +7,8 @@
 
 ;; DECOMP BEGINS
 
+(define-extern *allow-flutflut-anywhere* symbol)
+
 (if (not (nmember "flutp" *kernel-packages*))
     (set! *kernel-packages* (cons "flutp" *kernel-packages*))
     )
@@ -170,7 +172,10 @@
   :event (-> (method-of-type flutflut wait-for-start) event)
   :enter (behavior ()
     (blocking-plane-destroy)
-    (blocking-plane-spawn (the-as curve-control (-> self path-target)))
+    (if (not *allow-flutflut-anywhere*)
+      (blocking-plane-spawn (the-as curve-control (-> self path-target)))
+      )
+    (none)
     )
   :exit (-> (method-of-type flutflut wait-for-start) exit)
   :code (behavior ()
@@ -287,7 +292,10 @@
     )
   :enter (behavior ()
     (blocking-plane-destroy)
-    (blocking-plane-spawn (the-as curve-control (-> self path-flut)))
+    (if (not *allow-flutflut-anywhere*)
+      (blocking-plane-spawn (the-as curve-control (-> self path-flut)))
+      )
+    (none)
     )
   :code (behavior ()
     (ja-channel-set! 0)
@@ -345,13 +353,15 @@
   (set! (-> this auto-get-off) #f)
   (move-to-ground (-> this root-override) 40960.0 40960.0 #t (collide-kind background))
   (set! (-> this cell) (the-as handle #f))
-  (blocking-plane-spawn
-    (the-as
-      curve-control
-      (if (and *target* (logtest? (-> *target* control root-prim prim-core action) (collide-action flut)))
-          (-> this path-flut)
-          (-> this path-target)
-          )
+  (if (not *allow-flutflut-anywhere*)
+    (blocking-plane-spawn
+      (the-as
+        curve-control
+        (if (and *target* (logtest? (-> *target* control root-prim prim-core action) (collide-action flut)))
+            (-> this path-flut)
+            (-> this path-target)
+            )
+        )
       )
     )
   (set! (-> this sound)
